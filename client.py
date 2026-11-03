@@ -4,12 +4,33 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 from jsonschema import Draft202012Validator
 
 SCHEMAS = json.loads(Path(__file__).with_name('template_schemas.json').read_text())
 UNSPECIFIED = {'conditionrule', 'confirmationrule', 'config'}
+LIMIT_FIELD = 'message_limit_per_hour'
+
+
+def selected_fields(value, fields):
+    return {k: value[k] for k in fields if k in value} if isinstance(value, dict) else {}
+
+
+def limit_value(template):
+    value = (template.get('config') or {}).get('limit')
+    return int(value) if isinstance(value, (str, int)) and str(value).isdigit() else None
+
+
+def field_value(template, key):
+    return limit_value(template) if key == LIMIT_FIELD else template.get(key)
+
+
+def changed_fields_match(actual, expected):
+    # API reads this documented enum as an integer and accepts it as a string.
+    return all(str(actual.get(k)) == str(v) if k == 'notice_confirmed_records'
+               else field_value(actual, k) == v for k, v in expected.items())
 
 
 def revision(value):
@@ -22,6 +43,10 @@ def prepare(current, kind, changes):
         raise ValueError('Укажите тип шаблона и непустой объект изменений.')
     props = SCHEMAS[kind]['properties']
     for key, value in changes.items():
+        if key == LIMIT_FIELD:
+            if kind != 'before' or type(value) is not int or not 1 <= value <= 10:
+                raise ValueError('Лимит напоминания должен быть целым числом от 1 до 10 в час.')
+            continue
         if key not in props or props[key].get('readOnly') or key in UNSPECIFIED:
             raise ValueError(f'Изменение поля {key} не поддерживается.')
         Draft202012Validator(props[key]).validate(value)
@@ -29,7 +54,12 @@ def prepare(current, kind, changes):
     # Validate changed fields only, so existing vendor values remain intact.
     payload = {k: v for k, v in current.items()
                if not props.get(k, {}).get('readOnly')}
-    payload.update(changes)
+    payload.update({k: v for k, v in changes.items() if k != LIMIT_FIELD})
+    if LIMIT_FIELD in changes:
+        existing_config = current.get('config')
+        if existing_config is not None and not isinstance(existing_config, dict):
+            raise ValueError('Неожиданный формат config; лимит не изменён.')
+        payload['config'] = dict(existing_config or {}, limit=str(changes[LIMIT_FIELD]))
     return payload
 
 
@@ -86,6 +116,48 @@ class MessageHelp:
             raise RuntimeError('Неожиданный формат шаблона MessageHelp.')
         return value
 
+    async def reference_data(self, project_id):
+        """Read-only allowlisted reference endpoints, without credentials/contacts."""
+        self.path(project_id, 'before')
+        prefix = f'app/projects/{project_id}'
+        result = {}
+        specs = [
+            ('categories', '/integrations/altegio/categories'),
+            ('staffs', '/integrations/altegio/staffs'),
+            ('record_categories', '/integrations/altegio/record_categories'),
+            ('general', '/config/general'),
+            ('channels', '/channels/'),
+        ]
+        for name, suffix in specs:
+            try:
+                response = await self.request('GET', prefix + suffix, project_id)
+                data = response.get('data')
+                if name == 'general':
+                    result[name] = selected_fields(data, ['timezone_name', 'min_hour', 'max_hour'])
+                    result[name]['test_phone_configured'] = bool(data.get('testphone')) if isinstance(data, dict) else False
+                elif name == 'categories':
+                    result[name] = {k: [selected_fields(x, ['id', 'title', 'category_id', 'filials']) for x in v]
+                                    for k, v in (data or {}).items() if k in {'services', 'categories'} and isinstance(v, list)}
+                elif name == 'channels':
+                    result[name] = []
+                    for ch in data if isinstance(data, list) else []:
+                        item = selected_fields(ch, ['id', 'name', 'uuid', 'active', 'type'])
+                        result[name].append(item)
+                        try:
+                            channel_uuid = str(UUID(ch['uuid']))
+                            menu = await self.request('GET', prefix + f'/channels/{channel_uuid}/bot_messages', project_id)
+                            menu_data = menu.get('data')
+                            item['bot_messages'] = [selected_fields(x, ['id', 'parent_id', 'code', 'alternative_codes', 'description', 'message', 'function'])
+                                                    for x in menu_data if isinstance(x, dict)] if isinstance(menu_data, list) else []
+                        except (ValueError, KeyError, TypeError, RuntimeError):
+                            item['bot_messages_unavailable'] = True
+                else:
+                    fields = ['id', 'name', 'title', 'specialization', 'hidden', 'filial']
+                    result[name] = [selected_fields(x, fields) for x in data] if isinstance(data, list) else []
+            except (RuntimeError, ValueError, TypeError, AttributeError):
+                result[name] = {'unavailable': True}
+        return result
+
     async def list(self, project_id, kind, page=1):
         if type(page) is not int or page < 1:
             raise ValueError('Номер страницы должен быть положительным.')
@@ -96,7 +168,7 @@ class MessageHelp:
         current = await self.get(project_id, kind, template_id)
         prepare(current, kind, changes)
         return {'revision': revision(current), 'changes': {
-            k: {'before': current.get(k), 'after': v} for k, v in changes.items()},
+            k: {'before': field_value(current, k), 'after': v} for k, v in changes.items()},
             'writes_enabled': self.writes}
 
     async def update(self, project_id, kind, template_id, changes, expected_revision):
@@ -108,6 +180,6 @@ class MessageHelp:
         payload = prepare(current, kind, changes)
         await self.request('PUT', self.path(project_id, kind, template_id), project_id, json=payload)
         verified = await self.get(project_id, kind, template_id)
-        if any(verified.get(k) != v for k, v in changes.items()):
+        if not changed_fields_match(verified, changes):
             raise RuntimeError('Запись выполнена, но проверка не совпала. Не повторяйте: перечитайте шаблон.')
         return {'verified': True, 'template': verified, 'revision': revision(verified)}

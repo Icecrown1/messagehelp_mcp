@@ -65,11 +65,16 @@ def build():
     async def get_template(project_id: int, kind: Kind, template_id: int) -> dict:
         """Прочитать существующий шаблон со всеми его настройками."""
         authorize()
-        return {'template': await api.get(project_id, kind, template_id)}
+        return {'template': await api.get(project_id, kind, template_id),
+                'reference_data': await api.reference_data(project_id)}
 
     @mcp.tool(annotations={'readOnlyHint': True})
     async def preview_changes(project_id: int, kind: Kind, template_id: int, changes: dict) -> dict:
-        """Показать точные изменения и revision для обновления; ничего не сохраняет."""
+        """Показать точные изменения и revision; ничего не сохраняет.
+
+        message_limit_per_hour (1..10) меняет только config.limit напоминания before.
+        Остальные вложенные настройки не меняются.
+        """
         authorize()
         return await api.preview(project_id, kind, template_id, changes)
 

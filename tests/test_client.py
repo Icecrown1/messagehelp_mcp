@@ -1,7 +1,50 @@
 import httpx
 import pytest
 from jsonschema import ValidationError
-from client import MessageHelp, prepare, revision
+from client import MessageHelp, prepare, revision, changed_fields_match
+
+
+def test_limit_merge_preserves_nested_config_without_mutation():
+    current = {'config': {'limit': '', 'crm': {'enabled': True}}, 'active': False}
+    result = prepare(current, 'before', {'message_limit_per_hour': 3})
+    assert result['config'] == {'limit': '3', 'crm': {'enabled': True}}
+    assert current['config']['limit'] == ''
+    assert 'message_limit_per_hour' not in result
+    assert changed_fields_match(result, {'message_limit_per_hour': 3})
+
+
+@pytest.mark.parametrize('value', [True, 0, -1, 11, '3', 2.5])
+def test_invalid_limits_are_rejected(value):
+    with pytest.raises(ValueError):
+        prepare({}, 'before', {'message_limit_per_hour': value})
+
+
+def test_enum_verification_accepts_vendor_integer():
+    assert changed_fields_match({'notice_confirmed_records': 2}, {'notice_confirmed_records': '2'})
+    assert not changed_fields_match({'notice_confirmed_records': 1}, {'notice_confirmed_records': '2'})
+
+
+@pytest.mark.asyncio
+async def test_reference_data_redacts_sensitive_channel_and_settings_fields():
+    def handle(request):
+        path=request.url.path
+        if path.endswith('/config/general'):
+            data={'min_hour': 9, 'max_hour': 21, 'timezone_name': 'Asia/Dushanbe', 'testphone': 'secret-phone', 'token': 'secret-token'}
+        elif path.endswith('/channels/'):
+            data=[{'id': 4, 'uuid': '../escape', 'name': 'WhatsApp', 'settings': {'token': 'secret-token'}, 'instance_phone': 'secret-phone'}]
+        elif path.endswith('/categories'):
+            data={'categories': [{'id': 1,'title': 'Service','secret': 'secret-token'}], 'services': []}
+        else:
+            data=[]
+        return httpx.Response(200,json={'success': True, 'data': data})
+    api=MessageHelp('fake',[1],transport=httpx.MockTransport(handle))
+    result=await api.reference_data(1)
+    assert result['general']['min_hour']==9
+    assert result['general']['test_phone_configured'] is True
+    assert 'secret-' not in str(result)
+    assert result['channels'][0]['bot_messages_unavailable'] is True
+    with pytest.raises(ValueError):
+        await api.reference_data(2)
 
 
 def test_preserves_existing_settings():
