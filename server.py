@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from client import MessageHelp
+from oauth_storage import build_oauth_storage
 
 Kind = Literal['before', 'after', 'review', 'crud', 'birthday']
 
@@ -33,10 +34,12 @@ def build():
     base_url = os.environ.get('BASE_URL') or os.environ.get('RENDER_EXTERNAL_URL')
     if not base_url:
         raise RuntimeError('Задайте BASE_URL или RENDER_EXTERNAL_URL.')
+    signing_key = os.environ['FASTMCP_SERVER_AUTH_OAUTH_PROXY_JWT_SIGNING_KEY']
+    storage = build_oauth_storage(signing_key)
     auth = GitHubProvider(client_id=os.environ['GITHUB_CLIENT_ID'],
                           client_secret=os.environ['GITHUB_CLIENT_SECRET'], base_url=base_url,
                           required_scopes=['read:user'],
-                          jwt_signing_key=os.environ['FASTMCP_SERVER_AUTH_OAUTH_PROXY_JWT_SIGNING_KEY'])
+                          jwt_signing_key=signing_key, client_storage=storage)
     mcp = FastMCP('STELLA MessageHelp', auth=auth,
                  instructions='Read templates, preview exact changes, then apply only user-requested edits. '
                  'Never invent IDs. Updates require the revision returned by preview. '
@@ -53,7 +56,12 @@ def build():
 
     @mcp.custom_route('/health', methods=['GET'])
     async def health(request):
-        return JSONResponse({'status': 'ok'})
+        if storage is not None:
+            try:
+                await storage.get(key='health-check', collection='mcp-oauth-health')
+            except Exception:
+                return JSONResponse({'status': 'oauth_storage_unavailable'}, status_code=503)
+        return JSONResponse({'status': 'ok', 'oauth_storage': 'redis' if storage else 'disk'})
 
     @mcp.tool(annotations={'readOnlyHint': True})
     async def list_templates(project_id: int, kind: Kind, page: int = 1) -> dict:

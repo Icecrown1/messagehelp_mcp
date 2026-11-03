@@ -1,3 +1,5 @@
 fastmcp==2.14.7
 httpx>=0.28,<0.29
 jsonschema>=4.23,<5
+py-key-value-aio[redis]==0.3.0
+redis==8.1.0

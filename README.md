@@ -15,8 +15,11 @@
 - Проверка revision защищает от уже произошедших изменений, но API не даёт атомарный
   compare-and-swap: не редактируйте один шаблон одновременно в интерфейсе и через MCP.
 - Render Free засыпает при простое; первое обращение может завершиться таймаутом.
-  После пробуждения повторите подключение. Данные OAuth на бесплатном диске
-  могут теряться при перезапуске: тогда потребуется повторная авторизация.
+  После пробуждения повторите подключение. OAuth хранится отдельно в зашифрованном
+  Key Value через `OAUTH_REDIS_URL`, поэтому обновление веб-сервиса не стирает регистрации.
+  Render Free Key Value теряет данные при собственном перезапуске или обновлении тарифа:
+  тогда нужно создать подключение MCP заново. Для сохранности при таких перезапусках
+  требуется хранилище с дисковой персистентностью.
 
 ## Развёртывание
 
@@ -45,6 +48,7 @@
 | `ALLOWED_GITHUB_LOGIN` | `Icecrown1` |
 | `MESSAGEHELP_TOKEN` | Bearer-токен MessageHelp |
 | `MESSAGEHELP_PROJECT_IDS` | Разрешённые ID проектов, через запятую |
+| `OAUTH_REDIS_URL` | Internal URL отдельного Render Key Value в том же workspace и регионе |
 | `ENABLE_WRITES` | `false` при первом запуске |
 | `SETUP_MODE` | `false` после заполнения всех ключей доступа |
 
@@ -53,8 +57,11 @@
 MessageHelp-токен получается через описанный в документации `POST /api/app/user/login`;
 срок действия ограничен. Эта версия не хранит пароль и не обновляет токен автоматически.
 
-6. Установите `SETUP_MODE=false` и примените переменные через Save and deploy.
-   Проверьте `GET /health`: `{"status":"ok"}`.
+6. Создайте Key Value в том же workspace и регионе: план Free, policy `noeviction`,
+   внешний доступ выключен. Задайте его Internal URL в `OAUTH_REDIS_URL`.
+   Установите `SETUP_MODE=false` и примените переменные через Save and deploy.
+   Проверьте `GET /health`: `{"status":"ok","oauth_storage":"redis"}`.
+   Отсутствие или недоступность хранилища не переключает сервер на временный диск.
 7. Подключите в ChatGPT собственный MCP по URL сервиса + `/mcp`, выбрав OAuth.
    Авторизуйтесь GitHub-аккаунтом `Icecrown1`.
 8. Проверьте чтение шаблона. Затем при необходимости задайте `ENABLE_WRITES=true`.
@@ -67,7 +74,7 @@ MessageHelp-токен получается через описанный в д�
 
 ## Тесты
 
-Python 3.12+, `pip install -r requirements.txt pytest pytest-asyncio`, затем `python -m pytest -q`.
+Python 3.12+, `pip install -r requirements.txt pytest pytest-asyncio fakeredis`, затем `python -m pytest -q`.
 Для полной фиксации зависимостей используйте прилагаемый `requirements-lock.txt`.
 # Расширенное чтение и лимиты
 

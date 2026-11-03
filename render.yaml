@@ -23,3 +23,5 @@ services:
         sync: false
       - key: MESSAGEHELP_PROJECT_IDS
         sync: false
+      - key: OAUTH_REDIS_URL
+        sync: false
