@@ -34,6 +34,8 @@ async def test_reference_data_redacts_sensitive_channel_and_settings_fields():
             data=[{'id': 4, 'uuid': '../escape', 'name': 'WhatsApp', 'settings': {'token': 'secret-token'}, 'instance_phone': 'secret-phone'}]
         elif path.endswith('/categories'):
             data={'categories': [{'id': 1,'title': 'Service','secret': 'secret-token'}], 'services': []}
+        elif path.endswith('/client_categories'):
+            data=[{'id': 41, 'title': 'Repeat client', 'filial': 7, 'token': 'secret-token', 'phone': 'secret-phone'}]
         else:
             data=[]
         return httpx.Response(200,json={'success': True, 'data': data})
@@ -41,6 +43,7 @@ async def test_reference_data_redacts_sensitive_channel_and_settings_fields():
     result=await api.reference_data(1)
     assert result['general']['min_hour']==9
     assert result['general']['test_phone_configured'] is True
+    assert result['client_categories'] == [{'id': 41, 'title': 'Repeat client', 'filial': 7}]
     assert 'secret-' not in str(result)
     assert result['channels'][0]['bot_messages_unavailable'] is True
     with pytest.raises(ValueError):

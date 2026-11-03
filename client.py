@@ -124,6 +124,7 @@ class MessageHelp:
         specs = [
             ('categories', '/integrations/altegio/categories'),
             ('staffs', '/integrations/altegio/staffs'),
+            ('client_categories', '/integrations/altegio/client_categories'),
             ('record_categories', '/integrations/altegio/record_categories'),
             ('general', '/config/general'),
             ('channels', '/channels/'),
