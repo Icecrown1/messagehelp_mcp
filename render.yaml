@@ -2,7 +2,7 @@ services:
   - type: web
     name: stella-messagehelp-mcp
     runtime: python
-    plan: free
+    plan: 0.5c-512mb
     buildCommand: pip install -r requirements-lock.txt
     startCommand: python server.py
     healthCheckPath: /health

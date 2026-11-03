@@ -2,7 +2,6 @@ import os
 from typing import Literal
 
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.dependencies import get_access_token
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -10,6 +9,7 @@ from starlette.routing import Route
 
 from client import MessageHelp
 from oauth_storage import build_oauth_storage
+from oauth_recovery import RecoverableGitHubProvider, recovery_clients_from_env
 
 Kind = Literal['before', 'after', 'review', 'crud', 'birthday']
 
@@ -36,7 +36,8 @@ def build():
         raise RuntimeError('Задайте BASE_URL или RENDER_EXTERNAL_URL.')
     signing_key = os.environ['FASTMCP_SERVER_AUTH_OAUTH_PROXY_JWT_SIGNING_KEY']
     storage = build_oauth_storage(signing_key)
-    auth = GitHubProvider(client_id=os.environ['GITHUB_CLIENT_ID'],
+    auth = RecoverableGitHubProvider(recovery_clients=recovery_clients_from_env(),
+                          client_id=os.environ['GITHUB_CLIENT_ID'],
                           client_secret=os.environ['GITHUB_CLIENT_SECRET'], base_url=base_url,
                           required_scopes=['read:user'],
                           jwt_signing_key=signing_key, client_storage=storage)
