@@ -13,6 +13,18 @@ SCHEMAS = json.loads(Path(__file__).with_name('template_schemas.json').read_text
 UNSPECIFIED = {'conditionrule', 'confirmationrule', 'config'}
 LIMIT_FIELD = 'message_limit_per_hour'
 SELECTION_FIELDS = {'category', 'master', 'client_category', 'record_category'}
+CANCEL_REPLY_FIELD = 'cancellation_reply_message'
+
+
+def is_cancel_reply_patch(kind, changes):
+    if not isinstance(changes, dict) or CANCEL_REPLY_FIELD not in changes:
+        return False
+    if kind != 'before' or set(changes) != {CANCEL_REPLY_FIELD}:
+        raise ValueError('Текст ответа на отмену меняется отдельно через напоминание before.')
+    text = changes[CANCEL_REPLY_FIELD]
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+        raise ValueError('Текст ответа должен содержать от 1 до 4000 символов.')
+    return True
 
 
 def selection_ids(value):
@@ -194,6 +206,12 @@ class MessageHelp:
                                   params={'page': page, 'count': 50})
 
     async def preview(self, project_id, kind, template_id, changes):
+        if is_cancel_reply_patch(kind, changes):
+            current, reply, path = await self.cancel_reply_snapshot(project_id, kind, template_id)
+            return {'revision': revision([current, reply]), 'changes': {
+                CANCEL_REPLY_FIELD: {'before': reply['message'], 'after': changes[CANCEL_REPLY_FIELD]}},
+                'shared_channel_reply': True, 'channel_id': current['channel_id'],
+                'reply_id': reply['id'], 'writes_enabled': self.writes}
         current = await self.get(project_id, kind, template_id)
         prepare(current, kind, changes)
         return {'revision': revision(current), 'changes': {
@@ -203,6 +221,21 @@ class MessageHelp:
     async def update(self, project_id, kind, template_id, changes, expected_revision):
         if not self.writes:
             raise ValueError('Запись отключена. ENABLE_WRITES=true включает редактирование.')
+        if is_cancel_reply_patch(kind, changes):
+            current, reply, path = await self.cancel_reply_snapshot(project_id, kind, template_id)
+            if revision([current, reply]) != expected_revision:
+                raise ValueError('Шаблон или ответ изменился. Сначала получите новое превью.')
+            payload = {k: v for k, v in reply.items() if k not in {'id', 'channel_id', 'files'}}
+            payload['message'] = changes[CANCEL_REPLY_FIELD]
+            await self.request('PUT', path, project_id, json=payload)
+            verified = (await self.request('GET', path, project_id)).get('data')
+            if not isinstance(verified, dict) or verified.get('message') != changes[CANCEL_REPLY_FIELD]:
+                raise RuntimeError('Ответ сохранён, но проверка текста не совпала. Не повторяйте запись.')
+            if any(verified.get(k) != v for k, v in reply.items() if k != 'message'):
+                raise RuntimeError('Проверка остальных настроек ответа не совпала. Не повторяйте запись.')
+            return {'verified': True, 'reply': selected_fields(verified,
+                    ['id', 'parent_id', 'code', 'function', 'message']),
+                    'revision': revision([current, verified])}
         current = await self.get(project_id, kind, template_id)
         if revision(current) != expected_revision:
             raise ValueError('Шаблон изменился. Сначала получите новое превью.')
@@ -212,3 +245,31 @@ class MessageHelp:
         if not changed_fields_match(verified, changes):
             raise RuntimeError('Запись выполнена, но проверка не совпала. Не повторяйте: перечитайте шаблон.')
         return {'verified': True, 'template': verified, 'revision': revision(verified)}
+
+    async def cancel_reply_snapshot(self, project_id, kind, template_id):
+        """Resolve only the existing answer 3 under this channel's confirmation menu."""
+        current = await self.get(project_id, kind, template_id)
+        channel_id = current.get('channel_id')
+        if type(channel_id) is not int or channel_id < 1:
+            raise ValueError('У напоминания должен быть выбран один конкретный канал.')
+        prefix = f'app/projects/{project_id}/channels/'
+        channels = (await self.request('GET', prefix, project_id)).get('data')
+        matches = [x for x in channels if isinstance(x, dict) and x.get('id') == channel_id]
+        if len(matches) != 1:
+            raise ValueError('Канал напоминания не найден однозначно.')
+        channel_uuid = str(UUID(matches[0]['uuid']))
+        prefix += channel_uuid + '/bot_messages'
+        menu = (await self.request('GET', prefix, project_id)).get('data')
+        roots = [x for x in menu if isinstance(x, dict) and x.get('code') == '#ORDER_NOTICE#']
+        if len(roots) != 1:
+            raise ValueError('Меню подтверждения не найдено однозначно.')
+        answers = [x for x in menu if isinstance(x, dict) and x.get('parent_id') == roots[0]['id']
+                   and x.get('code') == '3' and x.get('function') == 'cancel_record']
+        if len(answers) != 1 or type(answers[0].get('id')) is not int or answers[0]['id'] < 1:
+            raise ValueError('Ответ 3 с функцией отмены не найден однозначно.')
+        path = prefix + '/' + str(answers[0]['id'])
+        reply = (await self.request('GET', path, project_id)).get('data')
+        if not isinstance(reply, dict) or any(reply.get(k) != answers[0].get(k)
+                for k in ['id', 'parent_id', 'code', 'function']):
+            raise ValueError('Данные ответа изменились при чтении.')
+        return current, reply, path
