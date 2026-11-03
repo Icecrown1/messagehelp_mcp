@@ -12,6 +12,27 @@ from jsonschema import Draft202012Validator
 SCHEMAS = json.loads(Path(__file__).with_name('template_schemas.json').read_text())
 UNSPECIFIED = {'conditionrule', 'confirmationrule', 'config'}
 LIMIT_FIELD = 'message_limit_per_hour'
+SELECTION_FIELDS = {'category', 'master', 'client_category', 'record_category'}
+
+
+def selection_ids(value):
+    """Vendor returns associative ID maps despite documenting arrays."""
+    if not isinstance(value, (dict, list)):
+        raise ValueError('Фильтр должен содержать список ID или объект ID: ID.')
+    values = value.values() if isinstance(value, dict) else value
+    normalized = set()
+    for item in values:
+        if item in ('all', 'no_category'):
+            normalized.add(item)
+        elif type(item) is int and item > 0:
+            normalized.add(str(item))
+        elif isinstance(item, str) and item.isascii() and item.isdecimal() and int(item) > 0:
+            normalized.add(str(int(item)))
+        else:
+            raise ValueError('Фильтр содержит недопустимый ID.')
+    if isinstance(value, dict) and any(str(k) != str(v) for k, v in value.items()):
+        raise ValueError('Ключ и значение ID в фильтре должны совпадать.')
+    return sorted(normalized)
 
 
 def selected_fields(value, fields):
@@ -29,8 +50,12 @@ def field_value(template, key):
 
 def changed_fields_match(actual, expected):
     # API reads this documented enum as an integer and accepts it as a string.
-    return all(str(actual.get(k)) == str(v) if k == 'notice_confirmed_records'
-               else field_value(actual, k) == v for k, v in expected.items())
+    try:
+        return all(selection_ids(actual.get(k)) == selection_ids(v) if k in SELECTION_FIELDS
+                   else str(actual.get(k)) == str(v) if k == 'notice_confirmed_records'
+                   else field_value(actual, k) == v for k, v in expected.items())
+    except ValueError:
+        return False
 
 
 def revision(value):
@@ -49,6 +74,9 @@ def prepare(current, kind, changes):
             continue
         if key not in props or props[key].get('readOnly') or key in UNSPECIFIED:
             raise ValueError(f'Изменение поля {key} не поддерживается.')
+        if key in SELECTION_FIELDS:
+            selection_ids(value)
+            continue
         Draft202012Validator(props[key]).validate(value)
     # The vendor's before enum contradicts its own description for value 3.
     # Validate changed fields only, so existing vendor values remain intact.

@@ -24,6 +24,22 @@ def test_enum_verification_accepts_vendor_integer():
     assert not changed_fields_match({'notice_confirmed_records': 1}, {'notice_confirmed_records': '2'})
 
 
+def test_selection_maps_preserve_vendor_shape_and_compare_members():
+    current = {'category': {'10': 10, '20': 20}, 'config': {'keep': True}}
+    result = prepare(current, 'before', {'category': {'20': 20}})
+    assert result == {'category': {'20': 20}, 'config': {'keep': True}}
+    assert current['category'] == {'10': 10, '20': 20}
+    assert changed_fields_match({'master': {'10': '10', '20': 20}}, {'master': [20, 10]})
+    assert not changed_fields_match({'master': {'10': 10, '20': 20}}, {'master': [10]})
+    assert not changed_fields_match({'master': None}, {'master': []})
+
+
+@pytest.mark.parametrize('value', [{'10': 20}, {'all': 10}, [True], [-1], ['unknown'], [[1]], 'all'])
+def test_invalid_selection_rejected(value):
+    with pytest.raises(ValueError):
+        prepare({}, 'before', {'master': value})
+
+
 @pytest.mark.asyncio
 async def test_reference_data_redacts_sensitive_channel_and_settings_fields():
     def handle(request):
