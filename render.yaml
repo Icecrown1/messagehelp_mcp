@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: stella-messagehelp-mcp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-lock.txt
+    startCommand: python server.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: ALLOWED_GITHUB_LOGIN
+        value: Icecrown1
+      - key: ENABLE_WRITES
+        value: "false"
+      - key: FASTMCP_SERVER_AUTH_OAUTH_PROXY_JWT_SIGNING_KEY
+        generateValue: true
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: MESSAGEHELP_TOKEN
+        sync: false
+      - key: MESSAGEHELP_PROJECT_IDS
+        sync: false

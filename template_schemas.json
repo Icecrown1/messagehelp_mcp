@@ -1,0 +1,501 @@
+{
+  "before": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "bot_id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "name": {
+        "type": "string",
+        "description": "Название шаблона"
+      },
+      "conditionrule": {
+        "type": "array"
+      },
+      "hours": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "За сколько часов до визита отправлять сообщение"
+      },
+      "notice_confirmed_records": {
+        "type": "string",
+        "enum": [
+          "0",
+          "1",
+          "2"
+        ],
+        "description": "Для записей со статусом  \"клиент подтвердил\"\n  * `0` - Отправлять только в день записи\n  * `1` - Отправлять\n  * `2` - Не отправлять\n  * `3` - Отправлять только для подтвержденных записей"
+      },
+      "no_records_less_24hours": {
+        "type": "boolean",
+        "description": "Не отправлять для записей, сделанных менее чем за 24 часа до сеанса"
+      },
+      "category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям"
+      },
+      "master": {
+        "type": "array",
+        "description": "Фильтрация сделок по мастерам"
+      },
+      "client_category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям клиентов"
+      },
+      "destination": {
+        "type": "string",
+        "enum": [
+          "client",
+          "master"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `client` - Клиенту\n  * `master` - Мастеру"
+      },
+      "message": {
+        "type": "string",
+        "description": "Текст сообщения"
+      },
+      "waba_template_id": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "ID шаблона для канала Waba"
+      },
+      "file": {
+        "type": "array",
+        "description": "Ссылки на прикрепленные файлы",
+        "items": {
+          "type": "string"
+        }
+      },
+      "sms": {
+        "type": "string",
+        "description": "Текст сообщения для sms"
+      },
+      "config": {
+        "type": "object",
+        "description": "Доп. настройки"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "Шаблон включен"
+      },
+      "menu": {
+        "type": "integer"
+      },
+      "channels_menu": {
+        "type": "array",
+        "description": "Активировать пользователю меню"
+      },
+      "not_confirmation": {
+        "type": "boolean"
+      }
+    }
+  },
+  "after": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "bot_id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "name": {
+        "type": "string",
+        "description": "Название шаблона"
+      },
+      "hours": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "Через сколько часов после визита отправлять сообщение"
+      },
+      "conditionrule": {
+        "type": "array"
+      },
+      "request_frequency": {
+        "type": "string",
+        "enum": [
+          "1_in_day",
+          "1_in_week",
+          "1_in_month",
+          "1_in_2month",
+          "1_in_3month",
+          "1_in_6month",
+          "1_in_12month",
+          "only_one",
+          "only_one_all"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `1_in_day` - отправлять запрос не чаще 1 раза в день\n  * `1_in_week` - отправлять запрос не чаще 1 раза в неделю\n  * `1_in_month` - отправлять запрос не чаще 1 раза в месяц\n  * `1_in_2month` - отправлять запрос не чаще 1 раза в 2 месяца\n  * `1_in_3month` - отправлять запрос не чаще 1 раза в 3 месяца\n  * `1_in_6month` - отправлять запрос не чаще 1 раза в 6 мес\n  * `1_in_12month` - отправлять запрос не чаще 1 раза в 12 мес\n  * `only_one` - отправлять запрос только 1 раз\n  * `only_one_all` - отправлять запрос только 1 раз (не зависимо от шаблона)"
+      },
+      "menu": {
+        "type": "integer"
+      },
+      "channels_menu": {
+        "type": "array",
+        "description": "Активировать пользователю меню"
+      },
+      "category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям"
+      },
+      "master": {
+        "type": "array",
+        "description": "Фильтрация сделок по мастерам"
+      },
+      "client_category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям клиентов"
+      },
+      "message": {
+        "type": "string",
+        "description": "Текст сообщения"
+      },
+      "waba_template_id": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "ID шаблона для канала Waba"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "Шаблон включен"
+      },
+      "sms": {
+        "type": "string",
+        "description": "Текст сообщения для sms"
+      },
+      "staffs_link": {
+        "type": "array"
+      },
+      "review_template": {
+        "type": "boolean",
+        "description": "Шаблон является шаблоном с запросом отзыва",
+        "default": 0
+      },
+      "destination": {
+        "type": "string",
+        "enum": [
+          "client",
+          "master"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `client` - Клиенту\n  * `master` - Мастеру"
+      },
+      "file": {
+        "type": "array",
+        "description": "Ссылки на прикрепленные файлы",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "review": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "bot_id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "name": {
+        "type": "string",
+        "description": "Название шаблона"
+      },
+      "hours": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "Через сколько часов после визита отправлять сообщение"
+      },
+      "conditionrule": {
+        "type": "array"
+      },
+      "request_frequency": {
+        "type": "string",
+        "enum": [
+          "1_in_day",
+          "1_in_week",
+          "1_in_month",
+          "1_in_2month",
+          "1_in_3month",
+          "1_in_6month",
+          "1_in_12month",
+          "only_one",
+          "only_one_all",
+          "only_one_in_day",
+          "only_one_in_week",
+          "only_one_in_month",
+          "only_one_in_2month",
+          "only_one_in_3month",
+          "only_one_in_6month",
+          "only_one_in_12month"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `1_in_day` - отправлять запрос не чаще 1 раза в день\n  * `1_in_week` - отправлять запрос не чаще 1 раза в неделю\n  * `1_in_month` - отправлять запрос не чаще 1 раза в месяц\n  * `1_in_2month` - отправлять запрос не чаще 1 раза в 2 месяца\n  * `1_in_3month` - отправлять запрос не чаще 1 раза в 3 месяца\n  * `1_in_6month` - отправлять запрос не чаще 1 раза в 6 мес\n  * `1_in_12month` - отправлять запрос не чаще 1 раза в 12 мес\n  * `only_one_in_day` - отправлять запрос не чаще 1 раза в день (не зависимо от шаблона)\n  * `only_one_in_week` - отправлять запрос не чаще 1 раза в неделю (не зависимо от шаблона)\n  * `only_one_in_month` - отправлять запрос не чаще 1 раза в месяц (не зависимо от шаблона)\n  * `only_one_in_2month` - отправлять запрос не чаще 1 раза в 2 месяца (не зависимо от шаблона)\n  * `only_one_in_3month` - отправлять запрос не чаще 1 раза в 3 месяца (не зависимо от шаблона)\n  * `only_one_in_6month` - отправлять запрос не чаще 1 раза в 6 мес (не зависимо от шаблона)\n  * `only_one_in_12month` - отправлять запрос не чаще 1 раза в 12 мес (не зависимо от шаблона)\n  * `only_one` - отправлять запрос только 1 раз\n  * `only_one_all` - отправлять запрос только 1 раз (не зависимо от шаблона)"
+      },
+      "menu": {
+        "type": "integer"
+      },
+      "channels_menu": {
+        "type": "array",
+        "description": "Активировать пользователю меню"
+      },
+      "category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям"
+      },
+      "master": {
+        "type": "array",
+        "description": "Фильтрация сделок по мастерам"
+      },
+      "client_category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям клиентов"
+      },
+      "message": {
+        "type": "string",
+        "description": "Текст сообщения"
+      },
+      "waba_template_id": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "ID шаблона для канала Waba"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "Шаблон включен"
+      },
+      "sms": {
+        "type": "string",
+        "description": "Текст сообщения для sms"
+      },
+      "staffs_link": {
+        "type": "array"
+      },
+      "review_template": {
+        "type": "boolean",
+        "description": "Шаблон является шаблоном с запросом отзыва",
+        "default": 1
+      },
+      "destination": {
+        "type": "string",
+        "enum": [
+          "client",
+          "master"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `client` - Клиенту\n  * `master` - Мастеру"
+      },
+      "file": {
+        "type": "array",
+        "description": "Ссылки на прикрепленные файлы",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "crud": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "bot_id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "name": {
+        "type": "string",
+        "description": "Название шаблона"
+      },
+      "conditionrule": {
+        "type": "array"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "create",
+          "update",
+          "delete"
+        ],
+        "description": "Тип события\n  * `create` - Создание записи\n  * `update` - Изменение записи\n  * `delete` - Удаление записи"
+      },
+      "create_type": {
+        "type": "string",
+        "enum": [
+          "online",
+          "timetable"
+        ],
+        "description": "Способ записи\n  * `` - Любой\n  * `online` - Через онлайн-запись\n  * `timetable` - Через журнал записи\""
+      },
+      "category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям"
+      },
+      "master": {
+        "type": "array",
+        "description": "Фильтрация сделок по мастерам"
+      },
+      "client_category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям клиентов"
+      },
+      "destination": {
+        "type": "string",
+        "enum": [
+          "client",
+          "master",
+          "director",
+          "admin"
+        ],
+        "description": "Кому отправлять сообщение:\n  * `client` - Клиенту\n  * `master` - Мастеру\n  * `director` - Директору\n  * `admin` - Администратору"
+      },
+      "message": {
+        "type": "string",
+        "description": "Текст сообщения"
+      },
+      "waba_template_id": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "ID шаблона для канала Waba"
+      },
+      "sms": {
+        "type": "string",
+        "description": "Текст сообщения для sms"
+      },
+      "config": {
+        "type": "object",
+        "description": "Доп. настройки"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "Шаблон включен"
+      },
+      "is_recurrent_record": {
+        "type": "boolean",
+        "description": "Проверка повторяющихся записей"
+      },
+      "file": {
+        "type": "array",
+        "description": "Ссылки на прикрепленные файлы",
+        "items": {
+          "type": "string"
+        }
+      },
+      "send_option": {
+        "type": "string",
+        "enum": [
+          "services",
+          "master",
+          "datetime",
+          "seance_length",
+          "status_absence",
+          "status_came",
+          "status_success",
+          "paid_full",
+          "pre_paid",
+          "client"
+        ],
+        "description": "Условия отправки шаблона для события \"изменение записи\"\n  * `services` - Изменение услуг\n  * `master` - Изменение мастера\n  * `datetime` - Изменение даты/времени\n  * `seance_length` - Изменение длительности визита\n  * `status_absence` - Клиент не пришел\n  * `status_came` - Клиент пришел\n  * `status_success` - Клиент подтвердил\n  * `paid_full` - Оплата\n  * `pre_paid` - Предоплата\n  * `client` - Смена клиента"
+      },
+      "confirmation_required": {
+        "type": "boolean",
+        "description": "Отправлять запрос согласия на рассылку"
+      },
+      "confirmation_message": {
+        "type": "string",
+        "description": "Текст сообщения для запроса согласия"
+      },
+      "confirmationrule": {
+        "type": "array"
+      }
+    }
+  },
+  "birthday": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "bot_id": {
+        "type": "integer",
+        "format": "int32",
+        "readOnly": true
+      },
+      "name": {
+        "type": "string",
+        "description": "Название шаблона"
+      },
+      "days": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "За сколько дней поздравлять"
+      },
+      "menu": {
+        "type": "integer"
+      },
+      "channels_menu": {
+        "type": "array",
+        "description": "Активировать пользователю меню"
+      },
+      "message": {
+        "type": "string",
+        "description": "Текст сообщения"
+      },
+      "waba_template_id": {
+        "type": "integer",
+        "format": "int32",
+        "minimum": 1,
+        "description": "ID шаблона для канала Waba"
+      },
+      "sms": {
+        "type": "string",
+        "description": "Текст сообщения для sms"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "Шаблон включен"
+      },
+      "file": {
+        "type": "array",
+        "description": "Ссылки на прикрепленные файлы",
+        "items": {
+          "type": "string"
+        }
+      },
+      "category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям"
+      },
+      "client_category": {
+        "type": "array",
+        "description": "Фильтрация сделок по категориям клиентов"
+      }
+    }
+  }
+}
