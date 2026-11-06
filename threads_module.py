@@ -97,10 +97,15 @@ class ThreadsModule:
         return await self.store.get(draft_id)
 
     async def save_draft(self, text: str, publish_at: str, draft_id: str = '',
-                         expected_revision: str = '') -> dict:
+                         expected_revision: str = '', *, post_id: str = '',
+                         reply_to_id: str = '') -> dict:
         text = text_value(text)
         schedule, ts = schedule_value(publish_at)
+        if bool(post_id) != bool(reply_to_id):
+            raise ValueError('Для ответа укажите ID своего поста и ID комментария вместе.')
         if draft_id:
+            if reply_to_id:
+                raise ValueError('Адресат уже привязан к черновику; для другого создайте новый.')
             draft = await self.get_draft(draft_id)
             if draft['status'] not in {'draft', 'queued', 'cancelled', 'missed'}:
                 raise ValueError('Этот черновик нельзя менять; сначала проверьте результат публикации.')
@@ -110,6 +115,9 @@ class ThreadsModule:
             if expected_revision:
                 raise ValueError('Для нового черновика revision не передаётся.')
             draft = {'id': uuid4().hex, 'account': 'astro_orbi', 'created_at': time.time()}
+            if reply_to_id:
+                api, _ = await self.verified_access()
+                draft['reply_target'] = await api.reply_target(post_id, reply_to_id)
         # Editing queued content always revokes approval and removes it from due.
         draft = {**draft, 'text': text, 'publish_at': schedule, 'publish_at_ts': ts,
                  'status': 'draft', 'approved_by': None, 'approved_at': None,
@@ -167,7 +175,9 @@ class ThreadsModule:
                     api, auth = await self.verified_access()
                     if auth['user_id'] != draft['user_id']:
                         raise ThreadsError('Аккаунт отличается от согласованного.')
-                    container_id = await api.create_text(draft['text'], auth['user_id'])
+                    target = draft.get('reply_target')
+                    container_id = await api.create_text(draft['text'], auth['user_id'],
+                                                         target['id'] if target is not None else None)
                     draft = await self.store.put({**draft, 'container_id': container_id}, draft['revision'])
                     post_id = await api.publish(container_id, auth['user_id'])
                     await self.store.put({**draft, 'status': 'published', 'post_id': post_id,
@@ -180,6 +190,17 @@ class ThreadsModule:
                         draft['revision'])
 
     async def worker(self):
+        if self.seed_token:
+            try:
+                api, _ = await self.verified_access()
+                # Only fixed status and a count; never log tokens, posts, or customer data.
+                logging.getLogger('uvicorn.error').info('Astro Orbi: verified Threads profile @astro_orbi.')
+                posts = await api.posts()
+                logging.getLogger('uvicorn.error').info(
+                    'Astro Orbi: read %d posts from the first page.', len(posts['data']))
+            except Exception as exc:
+                detail = str(exc) if isinstance(exc, ThreadsError) else type(exc).__name__
+                log.warning('Astro Orbi: startup read check failed: %s', detail)
         while True:
             try:
                 await self.run_due()
@@ -265,13 +286,17 @@ def register_threads(mcp, module: ThreadsModule, authorize, login: str):
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False})
     async def threads_save_draft(text: str, publish_at: str, draft_id: str = '',
-                                 expected_revision: str = '') -> dict:
+                                 expected_revision: str = '', post_id: str = '',
+                                 reply_to_id: str = '') -> dict:
         """Сохранить текстовый черновик без публикации. ISO-время обязательно с часовым поясом.
 
         Изменение существующего текста или времени отменяет прежнее согласование.
+        Для нового ответа укажите post_id своей публикации и reply_to_id комментария.
+        При редактировании адресат сохраняется, эти два поля опустите.
         """
         authorize()
-        return await module.save_draft(text, publish_at, draft_id, expected_revision)
+        return await module.save_draft(text, publish_at, draft_id, expected_revision,
+                                       post_id=post_id, reply_to_id=reply_to_id)
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': True})
     async def threads_approve_draft(draft_id: str, expected_revision: str) -> dict:

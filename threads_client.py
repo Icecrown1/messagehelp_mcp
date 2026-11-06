@@ -74,14 +74,37 @@ class ThreadsAPI:
             params['after'] = after
         return page(await self.request('GET', f'{media_id(post_id)}/replies', **params))
 
+    async def reply_target(self, post_id: str, reply_id: str) -> dict:
+        """Find the selected comment in a conversation started by this account."""
+        root = await self.own_post(post_id)
+        reply_id = media_id(reply_id)
+        params = {'fields': 'id,text,username,permalink', 'limit': 50}
+        cursors = set()
+        while True:
+            result = await self.request('GET', f'{media_id(post_id)}/conversation', **params)
+            for comment in result.get('data', []):
+                if str(comment.get('id')) == reply_id:
+                    return {'post_id': post_id, 'post_url': root.get('permalink'),
+                            'id': reply_id, 'username': comment.get('username'),
+                            'text': comment.get('text'), 'url': comment.get('permalink')}
+            paging = result.get('paging', {})
+            after = paging.get('cursors', {}).get('after')
+            if not paging.get('next') or not after or after in cursors:
+                raise ThreadsError('Комментарий не найден в выбранной ветке @astro_orbi.')
+            cursors.add(after)
+            params['after'] = after
+
     async def insights(self, post_id: str) -> dict:
         await self.own_post(post_id)
         return page(await self.request('GET', f'{media_id(post_id)}/insights',
                                        metric='views,likes,replies,reposts,quotes'))
 
-    async def create_text(self, text: str, user_id: str) -> str:
+    async def create_text(self, text: str, user_id: str, reply_to_id: str | None = None) -> str:
+        params = {'media_type': 'TEXT', 'text': text}
+        if reply_to_id is not None:
+            params['reply_to_id'] = media_id(reply_to_id)
         result = await self.request('POST', f'{media_id(user_id)}/threads',
-                                    media_type='TEXT', text=text)
+                                    **params)
         return media_id(str(result.get('id', '')))
 
     async def publish(self, container_id: str, user_id: str) -> str:

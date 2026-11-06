@@ -22,8 +22,9 @@ class FakeAPI:
             raise ThreadsError('wrong account')
         return {'id': '1234', 'username': self.username}
 
-    async def create_text(self, text, user_id):
-        self.calls.append(('create', text, user_id))
+    async def create_text(self, text, user_id, reply_to_id=None):
+        self.calls.append(('create', text, user_id) if reply_to_id is None else
+                          ('reply', text, user_id, reply_to_id))
         await asyncio.sleep(0)
         return '5678'
 
@@ -220,6 +221,55 @@ async def test_http_error_and_paging_do_not_leak_tokens():
         'data': [], 'paging': {'next': 'https://graph.threads.net/?access_token=SECRET',
                                'cursors': {'after': 'cursor'}}}))
     assert await api.posts() == {'data': [], 'after': 'cursor'}
+
+
+@pytest.mark.asyncio
+async def test_reply_preserves_target_and_approval(queue, monkeypatch):
+    module, calls = queue
+
+    async def target(self, post_id, comment_id):
+        return {'post_id': post_id, 'id': comment_id, 'username': 'reader', 'text': 'Вопрос?'}
+
+    monkeypatch.setattr(FakeAPI, 'reply_target', target, raising=False)
+    draft = await module.save_draft('Ответ.', future(), post_id='100', reply_to_id='200')
+    assert draft['reply_target']['username'] == 'reader'
+    approved = await module.approve(draft['id'], draft['revision'], 'icecrown1')
+    edited = await module.save_draft('Другой ответ.', future(), draft['id'], approved['revision'])
+    assert edited['status'] == 'draft' and edited['reply_target'] == draft['reply_target']
+    with pytest.raises(RevisionConflict):
+        await module.approve(draft['id'], approved['revision'], 'icecrown1')
+    with pytest.raises(ValueError):
+        await module.save_draft('Текст', future(), draft['id'], edited['revision'],
+                                post_id='100', reply_to_id='201')
+    with pytest.raises(ValueError):
+        await module.save_draft('Текст', future(), post_id='100')
+    approved = await module.approve(draft['id'], edited['revision'], 'icecrown1')
+    monkeypatch.setattr(time, 'time', lambda: approved['publish_at_ts'] + 1)
+    await module.run_due()
+    await module.run_due()
+    assert calls == [('reply', 'Другой ответ.', '1234', '200'), ('publish', '5678', '1234')]
+
+
+@pytest.mark.asyncio
+async def test_reply_verifies_conversation_and_uses_only_the_selected_id():
+    from urllib.parse import parse_qs
+    def handler(request):
+        if request.method == 'POST':
+            assert parse_qs(request.content.decode()) == {
+                'text': ['Ответ'], 'media_type': ['TEXT'], 'reply_to_id': ['200']}
+            return httpx.Response(200, json={'id': '300'})
+        if request.url.path.endswith('/conversation'):
+            if 'after' in request.url.params:
+                return httpx.Response(200, json={'data': [{'id': '200', 'username': 'reader'}]})
+            return httpx.Response(200, json={'data': [],
+                'paging': {'next': 'unused', 'cursors': {'after': 'page2'}}})
+        return httpx.Response(200, json={'id': '100', 'username': 'astro_orbi'})
+
+    api = ThreadsAPI('test', transport=httpx.MockTransport(handler))
+    assert (await api.reply_target('100', '200'))['username'] == 'reader'
+    with pytest.raises(ThreadsError):
+        await api.reply_target('100', '201')
+    assert await api.create_text('Ответ', '1234', '200') == '300'
 
 
 @pytest.mark.asyncio
