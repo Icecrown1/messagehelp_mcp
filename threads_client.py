@@ -99,6 +99,20 @@ class ThreadsAPI:
         return page(await self.request('GET', f'{media_id(post_id)}/insights',
                                        metric='views,likes,replies,reposts,quotes'))
 
+    async def search(self, query: str, search_type: str = 'RECENT', after: str = '') -> dict:
+        query = query.strip()
+        if not 2 <= len(query) <= 100 or search_type not in {'RECENT', 'TOP'}:
+            raise ValueError('Запрос 2–100 символов; сортировка RECENT или TOP.')
+        params = {'q': query, 'search_type': search_type, 'limit': 25,
+                  'fields': 'id,text,username,timestamp,permalink,is_reply'}
+        if after:
+            params['after'] = after
+        return page(await self.request('GET', 'keyword_search', **params))
+
+    async def public_post(self, post_id: str) -> dict:
+        return await self.request('GET', media_id(post_id),
+                                  fields='id,text,username,timestamp,permalink,is_reply')
+
     async def create_text(self, text: str, user_id: str, reply_to_id: str | None = None) -> str:
         params = {'media_type': 'TEXT', 'text': text}
         if reply_to_id is not None:

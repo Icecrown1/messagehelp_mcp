@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 
 from threads_client import ThreadsAPI, ThreadsError
 from threads_store import RevisionConflict, ThreadsStore
+from threads_growth import PolicyBlocked, ThreadsGrowth, register_growth
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class ThreadsModule:
         self.api_factory = api_factory
         self.worker_last_ok = None
         self.worker_error = None
+        self.growth = ThreadsGrowth(self)
 
     async def access(self) -> tuple[ThreadsAPI, dict]:
         if not self.seed_token:
@@ -85,6 +87,7 @@ class ThreadsModule:
         result = {'account': 'astro_orbi', 'profile': 'https://www.threads.com/@astro_orbi',
                   'publishing_enabled': self.publishing, 'worker_last_ok': self.worker_last_ok,
                   'worker_error': self.worker_error, 'connected': False}
+        result['growth_policy'] = self.growth.policy()
         if not self.seed_token:
             return {**result, 'next_step': 'Добавить THREADS_ACCESS_TOKEN в Render Environment.'}
         api, auth = await self.verified_access()
@@ -132,6 +135,8 @@ class ThreadsModule:
             raise RevisionConflict('Запись изменилась. Заново откройте предпросмотр.')
         if draft['status'] != 'draft':
             raise ValueError('Согласовать можно только черновик.')
+        if draft.get('external_reply'):
+            raise PermissionError('Чужие ответы ставятся только через threads_queue_autonomous с лимитами.')
         schedule_value(draft['publish_at'])
         api, auth = await self.verified_access()
         return await self.store.put({**draft, 'status': 'queued',
@@ -166,8 +171,14 @@ class ThreadsModule:
                         draft['revision'])
                 continue
             try:
-                draft = await self.store.put({**draft, 'status': 'publishing'}, draft['revision'])
+                draft = await self.store.put({**draft, 'status': 'publishing', 'attempted_at': now},
+                    draft['revision'], guard=(lambda records: self.growth.guard(draft, records, sending=True))
+                    if draft.get('autonomous') else None)
             except RevisionConflict:
+                continue
+            except PolicyBlocked as exc:
+                with suppress(RevisionConflict):
+                    await self.store.put({**draft, 'status': 'cancelled', 'error': str(exc)}, draft['revision'])
                 continue
             try:
                 # Bound the attempt below the abandoned threshold even on a slow API.
@@ -176,6 +187,8 @@ class ThreadsModule:
                     if auth['user_id'] != draft['user_id']:
                         raise ThreadsError('Аккаунт отличается от согласованного.')
                     target = draft.get('reply_target')
+                    if draft.get('external_reply'):
+                        await self.growth.verify_target(api, target)
                     container_id = await api.create_text(draft['text'], auth['user_id'],
                                                          target['id'] if target is not None else None)
                     draft = await self.store.put({**draft, 'container_id': container_id}, draft['revision'])
@@ -239,6 +252,7 @@ def build_threads(signing_key: str):
 
 
 def register_threads(mcp, module: ThreadsModule, authorize, login: str):
+    register_growth(mcp, module, authorize, login)
     @mcp.tool(annotations={'readOnlyHint': True})
     async def threads_status() -> dict:
         """Подключение только @astro_orbi и состояние очереди; токены не возвращаются."""
@@ -267,10 +281,11 @@ def register_threads(mcp, module: ThreadsModule, authorize, login: str):
 
     @mcp.tool(annotations={'readOnlyHint': True})
     async def threads_post_insights(post_id: str) -> dict:
-        """Статистика своего поста; нужно разрешение threads_manage_insights."""
+        """Статистика своего поста и прирост с предыдущего дня; хранит 90 дневных срезов.
+        Нужно threads_manage_insights. Метрики не включают переходы на внешний сайт.
+        """
         authorize()
-        api, _ = await module.verified_access()
-        return await api.insights(post_id)
+        return await module.growth.insights(post_id)
 
     @mcp.tool(annotations={'readOnlyHint': True})
     async def threads_list_drafts(offset: int = 0) -> dict:

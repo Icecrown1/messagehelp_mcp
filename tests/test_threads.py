@@ -310,7 +310,7 @@ async def test_all_threads_tools_require_allowed_mcp_identity(server_env, monkey
     monkeypatch.setattr('server.get_access_token', lambda: None)
     tools = await build().get_tools()
     threads = {name: tool for name, tool in tools.items() if name.startswith('threads_')}
-    assert len(threads) == 10
+    assert len(threads) == 13
     for tool in threads.values():
         args = {p.name: '' for p in inspect.signature(tool.fn).parameters.values()
                 if p.default is inspect.Parameter.empty}

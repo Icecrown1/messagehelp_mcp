@@ -113,3 +113,36 @@ Python 3.12+, `pip install -r requirements.txt pytest pytest-asyncio fakeredis`,
 `config.limit`, сохраняя другие вложенные параметры. Лимит относится к одному
 шаблону; суммарную нагрузку на номер нужно проверять отдельно.
 
+
+## AstroOrbi: bounded autonomy (2026-11-07)
+
+The owner authorized daily research, analytics-driven content and bounded autonomous
+publication. Existing manually approved drafts retain their schedule and workflow.
+Set `THREADS_AUTONOMY_ENABLED=true` to allow the new `threads_queue_autonomous` tool.
+The default is false. Set it false again to stop autonomous sends without stopping
+previously approved manual posts. `THREADS_ENABLE_PUBLISHING=false` stops all Threads sends.
+
+Hard limits (Asia/Yekaterinburg): 2 supplemental root posts/day, 8 total MCP root posts/day,
+45-minute root-post spacing; external replies 5/day, 1/author/day, 1/root-post ever,
+60-minute spacing. Autonomous schedules must be within 48 hours and 09:00–22:00.
+Checks run atomically at queue time and again before an attempted send. Ambiguous
+network outcomes are never retried automatically. External targets must first be
+returned by keyword search, cached for 48h, and rechecked unchanged before sending.
+
+External replies are independently disabled by default. Enable
+`THREADS_EXTERNAL_REPLIES_ENABLED=true` only after checking Meta access. Required
+permissions: threads_basic, threads_content_publish, threads_read_replies,
+threads_manage_replies, threads_manage_insights; public search additionally requires
+threads_keyword_search with approved Advanced Access. threads_profile_discovery is
+optional for a later profile-lookup feature; this release uses keyword search only.
+Adding permissions to the app does not update an existing token: reauthorize @astro_orbi
+and replace THREADS_ACCESS_TOKEN securely in Render. Never put a token in this repository.
+
+`threads_post_insights` saves encrypted daily snapshots (last 90 days) and returns the
+previous day's observation and metric changes. These metrics do not measure site visits.
+
+Primary API references:
+- https://www.postman.com/meta/threads/request/34203612-b3b2c12a-7ce6-4d86-a3c6-6d31e3b66ea1
+- https://www.postman.com/meta/threads/request/34203612-7abb4419-a216-4e06-8027-f9f4fcf8bee9
+- https://developers.facebook.com/docs/threads/keyword-search
+- https://github.com/fbsamples/threads_api/issues/72

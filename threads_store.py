@@ -42,18 +42,24 @@ class ThreadsStore:
             raise ValueError('Запись не найдена.')
         return result
 
-    async def put(self, record: dict, expected_revision: str | None) -> dict:
+    async def put(self, record: dict, expected_revision: str | None, guard=None) -> dict:
         record = {**record, 'revision': uuid4().hex, 'updated_at': time.time()}
         key = self.key(record['id'])
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
                 await pipe.watch(key)
+                if guard is not None:
+                    await pipe.watch(self.prefix + 'mutation-version')
+                    ids = await pipe.zrange(self.prefix + 'index', 0, -1)
+                    records = [self.decode(await pipe.get(self.key(i))) for i in ids]
+                    guard([r for r in records if r is not None])
                 current = self.decode(await pipe.get(key))
                 if (current or {}).get('revision') != expected_revision:
                     raise RevisionConflict('Запись изменилась. Заново откройте предпросмотр.')
                 pipe.multi()
                 pipe.set(key, self.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
                 if record['id'] != 'auth':
+                    pipe.incr(self.prefix + 'mutation-version')
                     pipe.zadd(self.prefix + 'index', {record['id']: record['created_at']})
                     for index, state, score in [('due', 'queued', record.get('publish_at_ts', 0)),
                                                 ('inflight', 'publishing', record['updated_at'])]:
