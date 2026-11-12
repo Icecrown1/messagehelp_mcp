@@ -147,8 +147,9 @@ async def test_publishing_flag_and_account_binding(queue, monkeypatch):
     draft = await module.approve(draft['id'], draft['revision'], 'icecrown1')
     module.api_factory = lambda token: FakeAPI(token, calls, username='another-account')
     monkeypatch.setattr(time, 'time', lambda: draft['publish_at_ts'] + 2)
-    await module.run_due()
-    assert (await module.get_draft(draft['id']))['status'] == 'needs_review'
+    with pytest.raises(ThreadsError):
+        await module.run_due()
+    assert (await module.get_draft(draft['id']))['status'] == 'queued'
     assert calls == []
 
 

@@ -79,6 +79,67 @@ class ThreadsStore:
         records = [await self.get(i) for i in ids]
         return {'data': records, 'next_offset': offset + 25 if len(ids) == 25 else None}
 
+    async def rebind_account(self, auth: dict, expected_revision: str,
+                             previous_id: str, verified_posts: list[dict]) -> dict:
+        """Atomically move unsent approvals after a verified, operator-enabled migration.
+
+        Published and ambiguous attempts remain immutable evidence. A concurrent
+        edit/claim or auth rotation aborts the entire migration, never a partial move.
+        """
+        if auth['user_id'] == previous_id or len(verified_posts) < 2:
+            raise ValueError('Недостаточно подтверждений для переноса аккаунта.')
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                await pipe.watch(self.key('auth'), self.prefix + 'mutation-version')
+                current = self.decode(await pipe.get(self.key('auth')))
+                if (current or {}).get('revision') != expected_revision:
+                    raise RevisionConflict('Привязка аккаунта изменилась. Повторите проверку.')
+                if current['user_id'] != previous_id:
+                    raise RevisionConflict('Исходный ID изменился. Перенос остановлен.')
+                ids = await pipe.zrange(self.prefix + 'index', 0, -1)
+                records = [self.decode(await pipe.get(self.key(i))) for i in ids]
+                records = [r for r in records if r is not None]
+                by_id = {r['id']: r for r in records}
+                for proof in verified_posts:
+                    record = by_id.get(proof['draft_id'], {})
+                    if (record.get('revision') != proof['revision'] or
+                            record.get('status') != 'published' or
+                            record.get('user_id') != previous_id):
+                        raise RevisionConflict('История публикаций изменилась. Повторите проверку.')
+                if any(r.get('status') == 'publishing' for r in records):
+                    raise RevisionConflict('Есть незавершённая отправка. Дождитесь её результата.')
+                now = time.time()
+                migrated = []
+                for record in records:
+                    if (record.get('user_id') != previous_id or
+                            record.get('status') not in {'draft', 'queued', 'missed', 'cancelled'}):
+                        continue
+                    if record.get('reply_target') and record['status'] == 'queued':
+                        raise ValueError('Сначала проверьте адресатов запланированных ответов.')
+                    if record.get('container_id') or record.get('post_id') or record.get('attempted_at'):
+                        raise ValueError('В очереди есть попытка отправки: нужна отдельная проверка.')
+                    migrated.append({**record, 'user_id': auth['user_id'],
+                                     'previous_user_id': previous_id,
+                                     'identity_rebound_at': now,
+                                     'revision': uuid4().hex, 'updated_at': now})
+                auth = {**auth, 'revision': uuid4().hex, 'updated_at': now,
+                        'identity_rebind': {'from_user_id': previous_id,
+                            'to_user_id': auth['user_id'], 'at': now,
+                            'draft_ids': [r['id'] for r in migrated],
+                            'verified_posts': verified_posts}}
+                # Encryption/serialization complete before MULTI to avoid partial commands.
+                writes = [(self.key(r['id']), self.cipher.encrypt(
+                    json.dumps(r, ensure_ascii=False).encode())) for r in [auth, *migrated]]
+                pipe.multi()
+                for key, value in writes:
+                    pipe.set(key, value)
+                pipe.incr(self.prefix + 'mutation-version')
+                # Schedules and states have not changed; all queue indexes stay intact.
+                await pipe.execute()
+        except WatchError:
+            raise RevisionConflict('Очередь изменилась. Повторите проверку переноса.') from None
+        return auth
+
     async def due(self, now: float) -> list[str]:
         return await self.redis.zrangebyscore(self.prefix + 'due', '-inf', now, start=0, num=25)
 

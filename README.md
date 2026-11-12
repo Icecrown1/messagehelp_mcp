@@ -146,3 +146,22 @@ Primary API references:
 - https://www.postman.com/meta/threads/request/34203612-7abb4419-a216-4e06-8027-f9f4fcf8bee9
 - https://developers.facebook.com/docs/threads/keyword-search
 - https://github.com/fbsamples/threads_api/issues/72
+
+## Reconnecting the same Threads profile through a different Meta app
+
+An ID mismatch remains blocked by default, including when the username matches.
+After the owner authorizes reconnection, an operator can set
+`THREADS_REBIND_FROM_USER_ID` to the exact previously stored Threads user ID and
+replace `THREADS_ACCESS_TOKEN` through Render Environment. On the next access,
+the server requires `@astro_orbi` and matches two previously confirmed posts by
+exact text and original publication timestamp (within two minutes), using the
+new token's paginated own-post history. A renamed/empty account cannot pass.
+
+After verification, one Redis transaction changes auth and the unsent drafts'
+account binding. Texts, times, approvals and queue indexes are preserved.
+Concurrent writes or inflight attempts abort the transaction. Queued replies
+require a separate target check before migration. Published and needs_review
+records remain unchanged and are never retried. Status exposes only a non-secret
+migration summary. The setting cannot authorize another ID change after the old
+ID is replaced; remove it after successful verification. Do not clear Redis or
+disable the identity guard. Tokens are never returned by status or logged.

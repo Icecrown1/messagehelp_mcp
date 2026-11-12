@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from threads_client import ThreadsAPI, ThreadsError
 from threads_store import RevisionConflict, ThreadsStore
 from threads_growth import PolicyBlocked, ThreadsGrowth, register_growth
+from threads_rebind import verify_history
 
 log = logging.getLogger(__name__)
 
@@ -41,11 +42,13 @@ def schedule_value(value: str) -> tuple[str, float]:
 
 
 class ThreadsModule:
-    def __init__(self, store, seed_token: str, publishing: bool, api_factory=ThreadsAPI):
+    def __init__(self, store, seed_token: str, publishing: bool, api_factory=ThreadsAPI,
+                 *, rebind_from_user_id: str = ''):
         self.store = store
         self.seed_token = seed_token
         self.publishing = publishing
         self.api_factory = api_factory
+        self.rebind_from_user_id = rebind_from_user_id
         self.worker_last_ok = None
         self.worker_error = None
         self.growth = ThreadsGrowth(self)
@@ -60,11 +63,18 @@ class ThreadsModule:
             auth = None
         if not auth or auth['seed_fingerprint'] != fingerprint:
             api = self.api_factory(self.seed_token)
-            identity = await api.identity(auth['user_id'] if auth else '')
-            auth = await self.store.put({'id': 'auth', 'seed_fingerprint': fingerprint,
+            identity = await api.identity()
+            next_auth = {**(auth or {}), 'id': 'auth', 'seed_fingerprint': fingerprint,
                 'token': self.seed_token, 'user_id': identity['id'],
-                'refreshed_at': time.time(), 'expires_at': None},
-                auth['revision'] if auth else None)
+                'refreshed_at': time.time(), 'expires_at': None}
+            if auth and identity['id'] != auth['user_id']:
+                if not self.rebind_from_user_id or self.rebind_from_user_id != auth['user_id']:
+                    raise ThreadsError('ID аккаунта не совпадает с сохранённым @astro_orbi.')
+                proof = await verify_history(self.store, api, auth['user_id'])
+                auth = await self.store.rebind_account(next_auth, auth['revision'],
+                                                       auth['user_id'], proof)
+            else:
+                auth = await self.store.put(next_auth, auth['revision'] if auth else None)
         return self.api_factory(auth['token']), auth
 
     async def verified_access(self) -> tuple[ThreadsAPI, dict]:
@@ -91,8 +101,13 @@ class ThreadsModule:
         if not self.seed_token:
             return {**result, 'next_step': 'Добавить THREADS_ACCESS_TOKEN в Render Environment.'}
         api, auth = await self.verified_access()
+        rebind = auth.get('identity_rebind')
         return {**result, 'connected': True, 'user_id': auth['user_id'],
-                'token_expires_at': auth['expires_at']}
+                'token_expires_at': auth['expires_at'],
+                'identity_rebind': None if not rebind else {
+                    'from_user_id': rebind['from_user_id'], 'to_user_id': rebind['to_user_id'],
+                    'at': rebind['at'], 'migrated_drafts': len(rebind['draft_ids']),
+                    'verified_posts': len(rebind['verified_posts'])}}
 
     async def get_draft(self, draft_id: str) -> dict:
         if not re.fullmatch(r'[a-f0-9]{32}', draft_id):
@@ -160,7 +175,12 @@ class ThreadsModule:
                         draft['revision'])
         if not self.publishing:
             return
-        for draft_id in await self.store.due(now):
+        due = await self.store.due(now)
+        if due:
+            # Read-only authorization errors are not ambiguous publication attempts.
+            # Rebinding must also finish before claiming any draft for publication.
+            await self.verified_access()
+        for draft_id in due:
             draft = await self.store.get(draft_id)
             if draft['status'] != 'queued':
                 continue
@@ -248,7 +268,8 @@ def build_threads(signing_key: str):
                            socket_timeout=5, max_connections=10)
     return ThreadsModule(ThreadsStore(redis, signing_key),
                          os.environ.get('THREADS_ACCESS_TOKEN', ''),
-                         os.environ.get('THREADS_ENABLE_PUBLISHING', 'false').lower() == 'true')
+                         os.environ.get('THREADS_ENABLE_PUBLISHING', 'false').lower() == 'true',
+                         rebind_from_user_id=os.environ.get('THREADS_REBIND_FROM_USER_ID', '').strip())
 
 
 def register_threads(mcp, module: ThreadsModule, authorize, login: str):
