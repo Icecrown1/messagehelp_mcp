@@ -65,16 +65,17 @@ async def auto(module, text, when):
 
 @pytest.mark.asyncio
 async def test_persistent_daily_limit_and_concurrent_approval(module):
-    await auto(module, 'Один', at(10))
-    d2 = await module.save_draft('Два', at(12))
-    d3 = await module.save_draft('Три', at(14))
+    for i in range(5):
+        await auto(module, 'Пост ' + str(i), at(9+i))
+    d2 = await module.save_draft('Шестой', at(15))
+    d3 = await module.save_draft('Седьмой', at(17))
     outcomes = await asyncio.gather(*[module.growth.queue(d['id'], d['revision'], 'owner')
                                       for d in (d2, d3)], return_exceptions=True)
     assert sum(isinstance(v, dict) for v in outcomes) == 1
     assert all(isinstance(v, (dict, PolicyBlocked, RevisionConflict)) for v in outcomes)
     other = ThreadsModule(module.store, 'test-only', True, API)
     with pytest.raises(PolicyBlocked):
-        await auto(other, 'Четыре', at(16))
+        await auto(other, 'Сверх лимита', at(19))
 
 
 @pytest.mark.asyncio
@@ -90,11 +91,11 @@ async def test_disabled_autonomy_and_time_windows(module, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_total_post_cap_counts_existing_manual_queue(module):
-    for i in range(8):
+    for i in range(12):
         d = await module.save_draft('Базовый ' + str(i), at(9+i))
         await module.approve(d['id'], d['revision'], 'owner')
     with pytest.raises(PolicyBlocked, match='суточный'):
-        await auto(module, 'Дополнительный', at(20))
+        await auto(module, 'Дополнительный', at(21))
 
 
 @pytest.mark.asyncio
@@ -171,7 +172,7 @@ async def test_actual_send_spacing_after_delay(module, monkeypatch):
     monkeypatch.setattr(time, 'time', lambda: b['publish_at_ts']+1)
     await module.run_due()
     assert API.calls == [('create', None), ('publish',)]
-    assert (await module.get_draft(b['id']))['status'] == 'cancelled'
+    assert (await module.get_draft(b['id']))['status'] == 'queued'
 
 
 @pytest.mark.asyncio
@@ -201,3 +202,20 @@ async def test_search_request_is_read_only_and_validated():
     assert await api.search('таро') == {'data': [], 'after': None}
     with pytest.raises(ValueError):
         await api.search('x')
+
+
+@pytest.mark.asyncio
+async def test_worker_waits_for_actual_gap_without_cancelling_or_duplicate(module, monkeypatch):
+    first = await auto(module, 'Первый пост', at(10))
+    second = await auto(module, 'Следующий пост', at(10, 45))
+    monkeypatch.setattr(time, 'time', lambda: first['publish_at_ts'] + 30)
+    await module.run_due()
+    monkeypatch.setattr(time, 'time', lambda: second['publish_at_ts'] + 1)
+    await module.run_due()
+    assert (await module.get_draft(second['id']))['status'] == 'queued'
+    assert len(API.calls) == 2
+    monkeypatch.setattr(time, 'time', lambda: second['publish_at_ts'] + 31)
+    await module.run_due()
+    assert (await module.get_draft(second['id']))['status'] == 'published'
+    await module.run_due()
+    assert len(API.calls) == 4

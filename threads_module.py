@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 
 from threads_client import ThreadsAPI, ThreadsError
 from threads_store import RevisionConflict, ThreadsStore
-from threads_growth import PolicyBlocked, ThreadsGrowth, register_growth
+from threads_growth import PolicyBlocked, PublicationDeferred, ThreadsGrowth, register_growth
 from threads_rebind import verify_history
 
 log = logging.getLogger(__name__)
@@ -195,6 +195,9 @@ class ThreadsModule:
                     draft['revision'], guard=(lambda records: self.growth.guard(draft, records, sending=True))
                     if draft.get('autonomous') else None)
             except RevisionConflict:
+                continue
+            except PublicationDeferred:
+                # No API write happened; keep queued until the actual gap elapses.
                 continue
             except PolicyBlocked as exc:
                 with suppress(RevisionConflict):

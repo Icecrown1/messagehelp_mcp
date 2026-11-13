@@ -18,6 +18,11 @@ class PolicyBlocked(ValueError):
     pass
 
 
+class PublicationDeferred(PolicyBlocked):
+    """Wait for the minimum actual send interval without cancelling the draft."""
+    pass
+
+
 def local_day(ts):
     return datetime.fromtimestamp(ts, TZ).date().isoformat()
 
@@ -32,10 +37,10 @@ class ThreadsGrowth:
         self.store = module.store
 
     def policy(self):
-        return {'version': '2026-11-07', 'timezone': str(TZ),
+        return {'version': '2026-11-13', 'timezone': str(TZ),
                 'autonomy_enabled': os.getenv('THREADS_AUTONOMY_ENABLED', 'false').lower() == 'true',
                 'external_replies_enabled': os.getenv('THREADS_EXTERNAL_REPLIES_ENABLED', 'false').lower() == 'true',
-                'extra_posts_per_day': 2, 'total_posts_per_day': 8,
+                'extra_posts_per_day': 6, 'total_posts_per_day': 12,
                 'external_replies_per_day': 5, 'external_replies_per_author_per_day': 1,
                 'external_replies_per_post': 1, 'post_gap_minutes': 45,
                 'external_reply_gap_minutes': 60, 'local_hours': '09:00–22:00',
@@ -68,7 +73,7 @@ class ThreadsGrowth:
             limit, gap = 5, 3600
         else:
             candidates = [r for r in others if not r.get('reply_target')]
-            limit, gap = 8, 2700
+            limit, gap = policy['total_posts_per_day'], policy['post_gap_minutes'] * 60
         if sending:
             candidates = [r for r in candidates if r.get('attempted_at') or r.get('published_at')]
         def at(r):
@@ -76,13 +81,14 @@ class ThreadsGrowth:
         day = [r for r in candidates if local_day(at(r)) == local_day(ts)]
         if len(day) >= limit:
             raise PolicyBlocked('Достигнут суточный лимит.')
-        if not external and sum(bool(r.get('autonomous')) for r in day) >= 2:
-            raise PolicyBlocked('Уже запланированы или отправлены два дополнительных поста.')
+        if not external and sum(bool(r.get('autonomous')) for r in day) >= policy['extra_posts_per_day']:
+            raise PolicyBlocked('Достигнут суточный лимит дополнительных постов.')
         if external and any(r['reply_target']['username'].casefold() ==
                             target['username'].casefold() for r in day):
             raise PolicyBlocked('Этому автору уже запланирован или отправлен ответ сегодня.')
         if any(abs(at(r) - ts) < gap for r in candidates):
-            raise PolicyBlocked('Слишком маленький интервал между публикациями.')
+            error = PublicationDeferred if sending else PolicyBlocked
+            raise error('Слишком маленький интервал между публикациями.')
 
     async def queue(self, draft_id, revision, login):
         draft = await self.module.get_draft(draft_id)
@@ -206,7 +212,7 @@ def register_growth(mcp, module, authorize, login):
     async def threads_queue_autonomous(draft_id: str, expected_revision: str) -> dict:
         """ПУБЛИЧНАЯ отложенная публикация по постоянному разрешению владельца от 07.11.2026.
         Прочитайте brief и preview. Отдельное согласование текста не требуется в рамках policy.
-        До 2 дополнительных постов (всего до 8) или 5 чужих ответов за день UTC+5.
+        До 6 дополнительных постов (всего до 12) или 5 чужих ответов за день UTC+5.
         Чужие ответы требуют отдельного включённого флага и ранее найденного исходного поста.
         """
         authorize()
